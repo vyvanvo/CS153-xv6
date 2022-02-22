@@ -326,6 +326,7 @@ wait(int* status)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
+    struct proc *low_val_prior_proc = 0; // initialize to 0 in case process is invalid (not runnable or priority not lower)
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->parent != curproc)
         continue;
@@ -341,16 +342,28 @@ wait(int* status)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        p->priority = 0;
         release(&ptable.lock);
 
         *status = p->exit_status; //parent can exit if a child is killed
         return pid;
       }
-      else{
-        if(p->priority > curproc->priority){ // donate priority
-          p->priority = curproc->priority;
-        }
+      else if(p->state == RUNNABLE && p->priority > curproc->priority){ // we can donate our priority to child
+        if(!low_val_prior_proc) { low_val_prior_proc = p; } // set lowest val proc to p if it is still uninitialized
+        if(p->priority < low_val_prior_proc->priority) { low_val_prior_proc = p; } // set lowest val proc to p if p has more priority
+        // this enables us to donate priority to the highest priority child
+
+        //p->priority = curproc->priority;
+        //curproc->state = RUNNABLE; // change current process state from RUNNING to RUNNABLE so that we can run the child process next
+        //sched();
       }
+    }
+
+    // If we have a child we can donate priority to, we donate it
+    if(low_val_prior_proc) {
+      low_val_prior_proc->priority = curproc->priority;
+      curproc->state = RUNNABLE;
+      sched();
     }
 
     // No point waiting if we don't have any children.
@@ -375,6 +388,7 @@ waitpid(int pid, int* status, int options)
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
+    struct proc *low_val_prior_proc = 0; // initialize to 0 in case process is invalid (not runnable or priority not lower)
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->parent != curproc)
         continue;
@@ -390,11 +404,28 @@ waitpid(int pid, int* status, int options)
         p->name[0] = 0;
         p->killed = 0;
         p->state = UNUSED;
+        p->priority = 0;
         release(&ptable.lock);
 
         *status = p->exit_status; //parent can exit if specific child is killed
         return child_pid;
       }
+      else if(p->state == RUNNABLE && p->pid == pid && p->priority > curproc->priority) { // we can donate our priority to child
+        if(!low_val_prior_proc) { low_val_prior_proc = p; } // set lowest val proc to p if it is still uninitialized
+        if(p->priority < low_val_prior_proc->priority) { low_val_prior_proc = p; } // set lowest val proc to p if p has more priority
+        // this enables us to donate priority to the highest priority child
+
+        //p->priority = curproc->priority;
+        //curproc->state = RUNNABLE;
+        //sched();
+      }
+    }
+
+    // If we have a child we can donate priority to, we donate it
+    if(low_val_prior_proc) {
+      low_val_prior_proc->priority = curproc->priority;
+      curproc->state = RUNNABLE;
+      sched();
     }
 
     // No point waiting if we don't have any children.
@@ -433,7 +464,7 @@ scheduler(void)
     struct proc *low_val_prior_proc = ptable.proc;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       //get lowest value priority proc
-      if(p->state != RUNNABLE) {
+      if(p->state != RUNNABLE && p->state != RUNNING) {
         continue;
       }
 
@@ -441,71 +472,40 @@ scheduler(void)
         low_val_prior_proc = p;
       }
     }
-
-
-    /*
-    // Implement priority aging
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->state != RUNNABLE) {
-            continue;
-        }
-
-        if(p != low_val_prior_proc) {
-            if (p->priority > 0) {
-                p->priority = p->priority - 1;
-            }
-        }
-    }
-
-    if (low_val_prior_proc->priority < 31) {
-        low_val_prior_proc->priority = low_value_prior_proc->priority + 1;
-    }
-
-    */
-
     p = low_val_prior_proc;
 
     // Switch to chosen process.  It is the process's job
     // to release ptable.lock and then reacquire it
     // before jumping back to us.
-    if (p->state == RUNNABLE) {
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+    c->proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+    swtch(&(c->scheduler), p->context);
+    switchkvm();
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
-    }
-    release(&ptable.lock);
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    c->proc = 0;
 
-    /*
+    // Implement priority aging
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-
-      //round robin
-      if(p->state != RUNNABLE)
+      if(p->state != RUNNABLE) {
         continue;
+      }
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+      if(p != low_val_prior_proc) {
+        if (p->priority > 0) {
+          p->priority = p->priority - 1;
+        }
+      }
+    }
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+    if (low_val_prior_proc->priority < 31) {
+      low_val_prior_proc->priority = low_val_prior_proc->priority + 1;
     }
 
     release(&ptable.lock);
-    */
   }
 
 }
