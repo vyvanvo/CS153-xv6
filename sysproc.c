@@ -123,3 +123,13 @@ sys_add(void)
 	int b = 2020;
 	return a+b;
 }
+
+int
+sys_set_prior(void)
+{
+    int prior_lvl;
+    if(argint(0, &prior_lvl) < 0) {
+        return -1;
+    }
+    return set_prior(prior_lvl);
+}

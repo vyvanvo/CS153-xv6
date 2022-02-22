@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
   else if (atoi(argv[1]) == 3)
 	CELEBW02();
   else 
-   printf(1, "\ntype \"lab1 1\" to test exit and wait, \"lab1 2\" to test waitpid and \"lab1 3\" to test the extra credit WNOHANG option \n");
+   printf(1, "\ntype \"lab1_test 1\" to test exit and wait, \"lab1_test 2\" to test waitpid and \"lab1_test 3\" to test the extra credit WNOHANG option \n");
   
     // End of test
 	 exit(0);

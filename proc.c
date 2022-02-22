@@ -38,10 +38,10 @@ struct cpu*
 mycpu(void)
 {
   int apicid, i;
-  
+
   if(readeflags()&FL_IF)
     panic("mycpu called with interrupts enabled\n");
-  
+
   apicid = lapicid();
   // APIC IDs are not guaranteed to be contiguous. Maybe we should have
   // a reverse map, or reserve a register to store &cpus[i].
@@ -88,6 +88,7 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->priority = 10;
 
   release(&ptable.lock);
 
@@ -124,7 +125,7 @@ userinit(void)
   extern char _binary_initcode_start[], _binary_initcode_size[];
 
   p = allocproc();
-  
+
   initproc = p;
   if((p->pgdir = setupkvm()) == 0)
     panic("userinit: out of memory?");
@@ -198,6 +199,7 @@ fork(void)
   }
   np->sz = curproc->sz;
   np->parent = curproc;
+  np->priority = curproc->priority; //new process inherits parent's priority
   *np->tf = *curproc->tf;
 
   // Clear %eax so that fork returns 0 in the child.
@@ -319,7 +321,7 @@ wait(int* status)
   struct proc *p;
   int havekids, pid;
   struct proc *curproc = myproc();
-  
+
   acquire(&ptable.lock);
   for(;;){
     // Scan through table looking for exited children.
@@ -341,8 +343,13 @@ wait(int* status)
         p->state = UNUSED;
         release(&ptable.lock);
 
-        *status = p->exit_status;
+        *status = p->exit_status; //parent can exit if a child is killed
         return pid;
+      }
+      else{
+        if(p->priority < curproc->priority){ // donate priority
+            p->priority = curproc->priority;
+        }
       }
     }
 
@@ -361,7 +368,7 @@ int
 waitpid(int pid, int* status, int options)
 {
     struct proc *p;
-    int havekids, zombie_pid;
+    int havekids, child_pid;
     struct proc *curproc = myproc();
 
     acquire(&ptable.lock);
@@ -374,7 +381,7 @@ waitpid(int pid, int* status, int options)
             havekids = 1;
             if(p->state == ZOMBIE && p->pid == pid){ //if child is killed and it must be a specific child
                 // Found one.
-                zombie_pid = p->pid;
+                child_pid = p->pid;
                 kfree(p->kstack);
                 p->kstack = 0;
                 freevm(p->pgdir);
@@ -385,8 +392,8 @@ waitpid(int pid, int* status, int options)
                 p->state = UNUSED;
                 release(&ptable.lock);
 
-                *status = p->exit_status;
-                return zombie_pid;
+                *status = p->exit_status; //parent can exit if specific child is killed
+                return child_pid;
             }
         }
 
@@ -415,14 +422,85 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  
+  struct proc *low_prior_val;
+
   for(;;){
     // Enable interrupts on this processor.
     sti();
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
+
+    low_prior_val = ptable.proc;
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+          //get lowest value priority proc
+          if(p->state == RUNNABLE && p->priority < low_prior_val->priority) {
+              low_prior_val = p;
+          }
+      }
+
+      p = low_prior_val;
+
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+      swtch(&(c->scheduler), p->context);
+      switchkvm();
+
+
+
+    /*struct proc *low_val_prior_proc = ptable.proc;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        //get lowest value priority proc
+        if(p->state != RUNNABLE) {
+            continue;
+        }
+
+        if(p->priority < low_val_prior_proc->priority) {
+            low_val_prior_proc = p;
+        }
+    }
+
+    p = low_val_prior_proc;
+
+
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    c->proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
+
+    swtch(&(c->scheduler), p->context);
+    switchkvm();
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    c->proc = 0;
+
+    release(&ptable.lock);
+
+    */
+
+    /*
+    // Implement priority aging
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->state != RUNNABLE) {
+            continue;
+        }
+
+        if(p != low_val_prior_proc) {
+            p->priority = p->priority - 1;
+        }
+    }
+
+    low_val_prior_proc->priority = low_value_prior_proc->priority + 1;
+
+    */
+
+    /*for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+
+      //round robin
       if(p->state != RUNNABLE)
         continue;
 
@@ -440,9 +518,50 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
-    release(&ptable.lock);
+    */
+
+    //release(&ptable.lock);
 
   }
+
+}
+
+// Change priority level for a process
+int
+set_prior(int prior_lvl)
+{
+    struct proc *p = myproc();
+    if(p == 0) { return 1; }
+    p->priority = prior_lvl;
+
+    acquire(&ptable.lock);
+    p->state = RUNNABLE;
+    sched();
+    release(&ptable.lock);
+    return 0;
+}
+
+// Donate priority to another process (USER FUNCTION)
+int
+donate_prior(int pid)
+{
+    struct proc *p;
+    struct proc *curproc = myproc();
+    if(curproc == 0) { return 1; }
+
+    acquire(&ptable.lock);
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->pid == pid){
+            if(p->priority < curproc->priority){
+                p->priority = curproc->priority;
+            }
+            return 0;
+        }
+    }
+
+    release(&ptable.lock);
+
+    return 1; // No process with this pid
 }
 
 // Enter scheduler.  Must hold only ptable.lock
@@ -508,7 +627,7 @@ void
 sleep(void *chan, struct spinlock *lk)
 {
   struct proc *p = myproc();
-  
+
   if(p == 0)
     panic("sleep");
 
