@@ -8,8 +8,8 @@
 #include "spinlock.h"
 
 struct {
-  struct spinlock lock;
-  struct proc proc[NPROC];
+    struct spinlock lock;
+    struct proc proc[NPROC];
 } ptable;
 
 static struct proc *initproc;
@@ -85,7 +85,7 @@ allocproc(void)
   release(&ptable.lock);
   return 0;
 
-found:
+    found:
   p->state = EMBRYO;
   p->pid = nextpid++;
   p->priority = 10;
@@ -347,8 +347,8 @@ wait(int* status)
         return pid;
       }
       else{
-        if(p->priority < curproc->priority){ // donate priority
-            p->priority = curproc->priority;
+        if(p->priority > curproc->priority){ // donate priority
+          p->priority = curproc->priority;
         }
       }
     }
@@ -367,45 +367,45 @@ wait(int* status)
 int
 waitpid(int pid, int* status, int options)
 {
-    struct proc *p;
-    int havekids, child_pid;
-    struct proc *curproc = myproc();
+  struct proc *p;
+  int havekids, child_pid;
+  struct proc *curproc = myproc();
 
-    acquire(&ptable.lock);
-    for(;;){
-        // Scan through table looking for exited children.
-        havekids = 0;
-        for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-            if(p->parent != curproc)
-                continue;
-            havekids = 1;
-            if(p->state == ZOMBIE && p->pid == pid){ //if child is killed and it must be a specific child
-                // Found one.
-                child_pid = p->pid;
-                kfree(p->kstack);
-                p->kstack = 0;
-                freevm(p->pgdir);
-                p->pid = 0;
-                p->parent = 0;
-                p->name[0] = 0;
-                p->killed = 0;
-                p->state = UNUSED;
-                release(&ptable.lock);
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent != curproc)
+        continue;
+      havekids = 1;
+      if(p->state == ZOMBIE && p->pid == pid){ //if child is killed and it must be a specific child
+        // Found one.
+        child_pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->state = UNUSED;
+        release(&ptable.lock);
 
-                *status = p->exit_status; //parent can exit if specific child is killed
-                return child_pid;
-            }
-        }
-
-        // No point waiting if we don't have any children.
-        if(!havekids || curproc->killed){
-            release(&ptable.lock);
-            return -1;
-        }
-
-        // Wait for children to exit.  (See wakeup1 call in proc_exit.)
-        sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+        *status = p->exit_status; //parent can exit if specific child is killed
+        return child_pid;
+      }
     }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || curproc->killed){
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+  }
 }
 
 //PAGEBREAK: 42
@@ -422,7 +422,6 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  struct proc *low_prior_val;
 
   for(;;){
     // Enable interrupts on this processor.
@@ -431,56 +430,18 @@ scheduler(void)
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
 
-    low_prior_val = ptable.proc;
-      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-          //get lowest value priority proc
-          if(p->state == RUNNABLE && p->priority < low_prior_val->priority) {
-              low_prior_val = p;
-          }
+    struct proc *low_val_prior_proc = ptable.proc;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      //get lowest value priority proc
+      if(p->state != RUNNABLE) {
+        continue;
       }
 
-      p = low_prior_val;
-
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
-
-
-
-    /*struct proc *low_val_prior_proc = ptable.proc;
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        //get lowest value priority proc
-        if(p->state != RUNNABLE) {
-            continue;
-        }
-
-        if(p->priority < low_val_prior_proc->priority) {
-            low_val_prior_proc = p;
-        }
+      if(p->priority < low_val_prior_proc->priority) {
+        low_val_prior_proc = p;
+      }
     }
 
-    p = low_val_prior_proc;
-
-
-    // Switch to chosen process.  It is the process's job
-    // to release ptable.lock and then reacquire it
-    // before jumping back to us.
-    c->proc = p;
-    switchuvm(p);
-    p->state = RUNNING;
-
-    swtch(&(c->scheduler), p->context);
-    switchkvm();
-
-    // Process is done running for now.
-    // It should have changed its p->state before coming back.
-    c->proc = 0;
-
-    release(&ptable.lock);
-
-    */
 
     /*
     // Implement priority aging
@@ -490,15 +451,39 @@ scheduler(void)
         }
 
         if(p != low_val_prior_proc) {
-            p->priority = p->priority - 1;
+            if (p->priority > 0) {
+                p->priority = p->priority - 1;
+            }
         }
     }
 
-    low_val_prior_proc->priority = low_value_prior_proc->priority + 1;
+    if (low_val_prior_proc->priority < 31) {
+        low_val_prior_proc->priority = low_value_prior_proc->priority + 1;
+    }
 
     */
 
-    /*for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    p = low_val_prior_proc;
+
+    // Switch to chosen process.  It is the process's job
+    // to release ptable.lock and then reacquire it
+    // before jumping back to us.
+    if (p->state == RUNNABLE) {
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      swtch(&(c->scheduler), p->context);
+      switchkvm();
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+    }
+    release(&ptable.lock);
+
+    /*
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
 
       //round robin
       if(p->state != RUNNABLE)
@@ -518,10 +503,9 @@ scheduler(void)
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
+
+    release(&ptable.lock);
     */
-
-    //release(&ptable.lock);
-
   }
 
 }
@@ -530,38 +514,40 @@ scheduler(void)
 int
 set_prior(int prior_lvl)
 {
-    struct proc *p = myproc();
-    if(p == 0) { return 1; }
-    p->priority = prior_lvl;
+  struct proc *p = myproc();
+  if(p == 0) { return 1; }
+  p->priority = prior_lvl;
 
-    acquire(&ptable.lock);
-    p->state = RUNNABLE;
-    sched();
-    release(&ptable.lock);
-    return 0;
+
+  acquire(&ptable.lock);
+  p->state = RUNNABLE;
+  sched();
+  release(&ptable.lock);
+
+  return 0;
 }
 
 // Donate priority to another process (USER FUNCTION)
 int
 donate_prior(int pid)
 {
-    struct proc *p;
-    struct proc *curproc = myproc();
-    if(curproc == 0) { return 1; }
+  struct proc *p;
+  struct proc *curproc = myproc();
+  if(curproc == 0) { return 1; }
 
-    acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->pid == pid){
-            if(p->priority < curproc->priority){
-                p->priority = curproc->priority;
-            }
-            return 0;
-        }
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == pid){
+      if(p->priority < curproc->priority){
+        p->priority = curproc->priority;
+      }
+      return 0;
     }
+  }
 
-    release(&ptable.lock);
+  release(&ptable.lock);
 
-    return 1; // No process with this pid
+  return 1; // No process with this pid
 }
 
 // Enter scheduler.  Must hold only ptable.lock
@@ -713,12 +699,12 @@ void
 procdump(void)
 {
   static char *states[] = {
-  [UNUSED]    "unused",
-  [EMBRYO]    "embryo",
-  [SLEEPING]  "sleep ",
-  [RUNNABLE]  "runble",
-  [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+          [UNUSED]    "unused",
+          [EMBRYO]    "embryo",
+          [SLEEPING]  "sleep ",
+          [RUNNABLE]  "runble",
+          [RUNNING]   "run   ",
+          [ZOMBIE]    "zombie"
   };
   int i;
   struct proc *p;
