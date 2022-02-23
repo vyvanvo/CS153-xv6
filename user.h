@@ -28,6 +28,7 @@ int sleep(int);
 int uptime(void);
 int add(void);
 int set_prior(int prior_lvl);
+int get_prior(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

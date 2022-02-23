@@ -133,3 +133,9 @@ sys_set_prior(void)
     }
     return set_prior(prior_lvl);
 }
+
+int
+sys_get_prior(void)
+{
+    return myproc()->priority;
+}

@@ -366,6 +366,7 @@ wait(int* status)
       sched();
     }
 
+
     // No point waiting if we don't have any children.
     if(!havekids || curproc->killed){
       release(&ptable.lock);
@@ -464,7 +465,7 @@ scheduler(void)
     struct proc *low_val_prior_proc = ptable.proc;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       //get lowest value priority proc
-      if(p->state != RUNNABLE && p->state != RUNNING) {
+      if(p->state != RUNNABLE && !p->state != RUNNING) {
         continue;
       }
 
